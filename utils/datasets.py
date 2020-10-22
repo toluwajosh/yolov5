@@ -14,6 +14,8 @@ from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+from torchvision import transforms
+
 from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first
 
 help_url = "https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data"
@@ -636,30 +638,31 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         else:
             # Load image
-            img, (h0, w0), (h, w) = load_image(self, index)
+            img, labels, shapes = load_normal(self, index)
+            # img, (h0, w0), (h, w) = load_image(self, index)
 
-            # Letterbox
-            shape = (
-                self.batch_shapes[self.batch[index]] if self.rect else self.img_size
-            )  # final letterboxed shape
-            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
-            shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
+            # # Letterbox
+            # shape = (
+            #     self.batch_shapes[self.batch[index]] if self.rect else self.img_size
+            # )  # final letterboxed shape
+            # img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
+            # shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
-            # Load labels
-            labels = []
-            x = self.labels[index]
-            if x.size > 0:
-                # Normalized xywh to pixel xyxy format
-                labels = x.copy()
-                labels[:, 1] = (
-                    ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + pad[0]
-                )  # pad width
-                labels[:, 2] = (
-                    ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]
-                )  # pad height
-                labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
-                labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
-
+            # # Load labels
+            # labels = []
+            # x = self.labels[index]
+            # if x.size > 0:
+            #     # Normalized xywh to pixel xyxy format
+            #     labels = x.copy()
+            #     labels[:, 1] = (
+            #         ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + pad[0]
+            #     )  # pad width
+            #     labels[:, 2] = (
+            #         ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]
+            #     )  # pad height
+            #     labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
+            #     labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
+        # exit(0)
         if self.augment:
             # Augment imagespace
             if not mosaic:
@@ -717,13 +720,79 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         return torch.stack(img, 0), torch.cat(label, 0), path, shapes
 
 
+def crop_image(self, image, index):
+    p_w, p_h = self.img_size, self.img_size
+    im_w, im_h = self.shapes[index]
+    # print("self.shapes[index]: ", im_w, im_h)
+    assert (im_w > p_w) and (
+        im_h > p_h
+    ), "desired size must be smaller than image shape"
+    print("self.labels[index]: ", self.labels[index])
+
+    color = (255, 0, 0)
+    thickness = 2
+    show_image = image.copy()
+    for labels in self.labels[index]:
+        [_, bbox_x0, bbox_y0, bbox_w, bbox_h] = labels
+        start_point = (int((bbox_x0 - bbox_w) * im_w), int((bbox_y0 - bbox_h) * im_h))
+        end_point = (int((bbox_x0 + bbox_w) * im_w), int((bbox_y0 + bbox_h) * im_h))
+        show_image = cv2.rectangle(show_image, start_point, end_point, color, thickness)
+    cv2.imshow("old_image", show_image)
+
+    crop_range_w = im_w - p_w
+    crop_range_h = im_h - p_h
+    # x = int(random.random() * crop_range_w)
+    # y = int(random.random() * crop_range_h)
+
+    x = np.random.randint(crop_range_w)
+    y = np.random.randint(crop_range_h)
+    image = image[y : y + p_h, x : x + p_w]
+
+    # adjust labels
+    show_image = image.copy()
+    for i in range(len(self.labels[index])):
+        [_, bbox_x0, bbox_y0, bbox_w, bbox_h] = self.labels[index][i]
+        new_bbox_x0 = bbox_x0 - x / im_w - bbox_w
+        new_bbox_y0 = bbox_y0 - y / im_h - bbox_h
+        if abs(new_bbox_x0) > p_w or abs(new_bbox_y0) > p_h:
+            continue
+
+        self.labels[index][i][1] = bbox_x0 - x / im_w
+        self.labels[index][i][2] = bbox_y0 - y / im_h
+        print("self.labels[index]: ", self.labels[index])
+
+        start_point = (
+            int((self.labels[index][i][1] - bbox_w) * im_w),
+            int((self.labels[index][i][2] - bbox_h) * im_h),
+        )
+        end_point = (
+            int((self.labels[index][i][1] + bbox_w) * im_w),
+            int((self.labels[index][i][2] + bbox_h) * im_h),
+        )
+        show_image = cv2.rectangle(image, start_point, end_point, color, thickness)
+    cv2.imshow("new_image", show_image)
+    # print("new labels: ", class_label, new_bbox_x0, new_bbox_y0, bbox_w, bbox_h)
+    # print("image.shape: ", image.shape)
+
+    k = cv2.waitKey(0)
+    if k == 27:
+        exit(0)
+
+    return image
+
+
 # Ancillary functions --------------------------------------------------------------------------------------------------
-def load_image(self, index):
+def load_image(self, index, cropped=False):
     # loads 1 image from dataset, returns img, original hw, resized hw
     img = self.imgs[index]
     if img is None:  # not cached
         path = self.img_files[index]
         img = cv2.imread(path)  # BGR
+
+        # if cropped:
+        #     img = crop_image(self, img, index)
+        img = crop_image(self, img, index)
+
         assert img is not None, "Image Not Found " + path
         h0, w0 = img.shape[:2]  # orig hw
         r = self.img_size / max(h0, w0)  # resize image to img_size
@@ -758,6 +827,29 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     # if random.random() < 0.2:
     #     for i in range(3):
     #         img[:, :, i] = cv2.equalizeHist(img[:, :, i])
+
+
+def load_normal(self, index):
+    img, (h0, w0), (h, w) = load_image(self, index)
+
+    # Letterbox
+    shape = (
+        self.batch_shapes[self.batch[index]] if self.rect else self.img_size
+    )  # final letterboxed shape
+    img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
+    shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
+
+    # Load labels
+    labels = []
+    x = self.labels[index]
+    if x.size > 0:
+        # Normalized xywh to pixel xyxy format
+        labels = x.copy()
+        labels[:, 1] = ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + pad[0]  # pad width
+        labels[:, 2] = ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]  # pad height
+        labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
+        labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
+    return img, labels, shapes
 
 
 def load_mosaic(self, index):
@@ -1130,3 +1222,7 @@ def create_folder(path="./new"):
     if os.path.exists(path):
         shutil.rmtree(path)  # delete output folder
     os.makedirs(path)  # make new output folder
+
+
+if __name__ == "__main__":
+    pass
