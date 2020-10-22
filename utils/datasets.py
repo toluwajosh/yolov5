@@ -622,6 +622,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp["mosaic"]
+        # print("Prior, self.labels[index]: ", self.labels[index])
         if mosaic:
             # Load mosaic
             img, labels = load_mosaic(self, index)
@@ -683,6 +684,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             # if random.random() < 0.9:
             #     labels = cutout(img, labels)
 
+        # print("Mid, self.labels[index]: ", self.labels[index])
         nL = len(labels)  # number of labels
         if nL:
             labels[:, 1:5] = xyxy2xywh(labels[:, 1:5])  # convert xyxy to xywh
@@ -702,6 +704,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if nL:
                     labels[:, 1] = 1 - labels[:, 1]
 
+        # print("Final, self.labels[index]: ", labels)
         labels_out = torch.zeros((nL, 6))
         if nL:
             labels_out[:, 1:] = torch.from_numpy(labels)
@@ -720,6 +723,54 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         return torch.stack(img, 0), torch.cat(label, 0), path, shapes
 
 
+# TODO: cleanup functions
+def resize_to_patch(labels, patch, original_shape):
+    [cat, bx, by, bw, bh] = labels
+
+    # if original_shape is not None:
+    im_w, im_h = original_shape
+    bx *= im_w
+    by *= im_h
+    bw *= im_w
+    bh *= im_h
+
+    px0, py0, pw, ph = patch
+    # print("px0, py0, pw, ph: ", px0, py0, pw, ph)
+    # npx0, npy0, npx1, npy1 = 0, 0, px0 + ph, py0 + ph
+    npx0, npy0, npx1, npy1 = 0, 0, ph, ph
+
+    # print("npx0, npy0, npx1, npy1: ", npx0, npy0, npx1, npy1)
+
+    bx0, by0 = bx - bw, by - bh
+    bx1, by1 = bx + bw, by + bh
+
+    # new bounding box values
+    nbx0, nby0 = max((bx0 - px0), npx0), max((by0 - py0), npy0)
+    nbx1, nby1 = min((bx1 - px0), npx1), min((by1 - py0), npy1)
+
+    # print("nbx0, nby0, nbx1, nby1: ", nbx0, nby0, nbx1, nby1, "\n")
+
+    nbw, nbh = (nbx1 - nbx0) / 2, (nby1 - nby0) / 2
+    nbx, nby = nbx0 + nbw, nby0 + nbh
+    # print("nbx, nby, nbw, nbh: ", nbx, nby, nbw, nbh, "\n")
+
+    if nbx < 0 or nby < 0 or nbw < 0 or nbh < 0:
+        cat, nbx, nby, nbw, nbh = 0, 0, 0, 0, 0
+
+    nbx /= pw
+    nby /= ph
+    nbw /= pw
+    nbh /= ph
+
+    labels[0] = cat
+    labels[1] = nbx
+    labels[2] = nby
+    labels[3] = nbw
+    labels[4] = nbh
+
+    return labels
+
+
 def crop_image(self, image, index):
     p_w, p_h = self.img_size, self.img_size
     im_w, im_h = self.shapes[index]
@@ -727,7 +778,71 @@ def crop_image(self, image, index):
     assert (im_w > p_w) and (
         im_h > p_h
     ), "desired size must be smaller than image shape"
-    print("self.labels[index]: ", self.labels[index])
+    # print("self.labels[index]: ", self.labels[index])
+    # print("len(self.labels[index][0]): ", len(self.labels[index][0]))
+
+    # color = (255, 0, 0)
+    # thickness = 2
+    # show_image = image.copy()
+    # for labels in self.labels[index]:
+    #     [_, bbox_x0, bbox_y0, bbox_w, bbox_h] = labels
+    #     start_point = (int((bbox_x0 - bbox_w) * im_w), int((bbox_y0 - bbox_h) * im_h))
+    #     end_point = (int((bbox_x0 + bbox_w) * im_w), int((bbox_y0 + bbox_h) * im_h))
+    #     show_image = cv2.rectangle(show_image, start_point, end_point, color, thickness)
+    # cv2.imshow("old_image", show_image)
+
+    crop_range_w = im_w - p_w
+    crop_range_h = im_h - p_h
+    # x = int(random.random() * crop_range_w)
+    # y = int(random.random() * crop_range_h)
+    x = np.random.randint(crop_range_w)
+    y = np.random.randint(crop_range_h)
+    im_h, im_w = image.shape[:2]
+    # print("im_w, im_h: ", im_w, im_h)
+    # exit(0)
+    image = image[y : y + p_h, x : x + p_w]
+    patch = [x, y, p_w, p_h]
+    # print("patch: ", patch)
+
+    for i in range(len(self.labels[index])):
+        self.labels[index][i] = resize_to_patch(
+            self.labels[index][i], patch, (im_w, im_h)
+        )
+    # print("Changed Labels: ", self.labels[index])
+
+    # # adjust labels
+    # show_image = image.copy()
+    # for i in range(len(self.labels[index])):
+    #     self.labels[index][i] = resize_to_patch(
+    #         self.labels[index][i], patch, (im_w, im_h)
+    #     )
+
+    #     [_, bbox_x0, bbox_y0, bbox_w, bbox_h] = self.labels[index][i]
+    #     start_point = (int((bbox_x0 - bbox_w) * p_w), int((bbox_y0 - bbox_h) * p_h))
+    #     end_point = (int((bbox_x0 + bbox_w) * p_w), int((bbox_y0 + bbox_h) * p_h))
+    #     show_image = cv2.rectangle(show_image, start_point, end_point, color, thickness)
+    # print("Changed Labels: ", self.labels[index])
+    # cv2.imshow("new_image", show_image)
+    # # print("new labels: ", class_label, new_bbox_x0, new_bbox_y0, bbox_w, bbox_h)
+    # # print("image.shape: ", image.shape)
+    # k = cv2.waitKey(0)
+    # if k == 27:
+    #     exit(0)
+    # self.shapes[index][0] = p_w
+    # self.shapes[index][1] = p_h
+
+    return image
+
+
+def crop_image_old(self, image, index):
+    p_w, p_h = self.img_size, self.img_size
+    im_w, im_h = self.shapes[index]
+    # print("self.shapes[index]: ", im_w, im_h)
+    assert (im_w > p_w) and (
+        im_h > p_h
+    ), "desired size must be smaller than image shape"
+    # print("self.labels[index]: ", self.labels[index])
+    # print("len(self.labels[index][0]): ", len(self.labels[index][0]))
 
     color = (255, 0, 0)
     thickness = 2
@@ -748,17 +863,34 @@ def crop_image(self, image, index):
     y = np.random.randint(crop_range_h)
     image = image[y : y + p_h, x : x + p_w]
 
+    # # for i in range(len(self.labels[index])):
+    # for i in range(self.labels[index].shape[0]):
+    #     [_, bbox_x0, bbox_y0, bbox_w, bbox_h] = self.labels[index][i]
+    #     new_bbox_x0 = bbox_x0 - x / im_w - bbox_w
+    #     new_bbox_y0 = bbox_y0 - y / im_h - bbox_h
+    #     if abs(new_bbox_x0) > p_w or abs(new_bbox_y0) > p_h:
+    #         continue
+    #     self.labels[index][i][1] = max(bbox_x0 - x / im_w, 0)
+    #     self.labels[index][i][2] = max(bbox_y0 - y / im_h, 0)
+
     # adjust labels
     show_image = image.copy()
     for i in range(len(self.labels[index])):
         [_, bbox_x0, bbox_y0, bbox_w, bbox_h] = self.labels[index][i]
         new_bbox_x0 = bbox_x0 - x / im_w - bbox_w
         new_bbox_y0 = bbox_y0 - y / im_h - bbox_h
-        if abs(new_bbox_x0) > p_w or abs(new_bbox_y0) > p_h:
+        new_bbox_x1 = bbox_x0 - x / im_w + bbox_w
+        new_bbox_y1 = bbox_y0 - y / im_h + bbox_h
+        if (
+            abs(new_bbox_x0) > p_w
+            or abs(new_bbox_y0) > p_h
+            or new_bbox_x1 < 0
+            or new_bbox_y1 < 0
+        ):
             continue
 
-        self.labels[index][i][1] = bbox_x0 - x / im_w
-        self.labels[index][i][2] = bbox_y0 - y / im_h
+        self.labels[index][i][1] = max(bbox_x0 - x / im_w, 0)
+        self.labels[index][i][2] = max(bbox_y0 - y / im_h, 0)
         print("self.labels[index]: ", self.labels[index])
 
         start_point = (
@@ -773,7 +905,6 @@ def crop_image(self, image, index):
     cv2.imshow("new_image", show_image)
     # print("new labels: ", class_label, new_bbox_x0, new_bbox_y0, bbox_w, bbox_h)
     # print("image.shape: ", image.shape)
-
     k = cv2.waitKey(0)
     if k == 27:
         exit(0)
@@ -782,30 +913,46 @@ def crop_image(self, image, index):
 
 
 # Ancillary functions --------------------------------------------------------------------------------------------------
-def load_image(self, index, cropped=False):
+def load_image(self, index, to_crop=False):
     # loads 1 image from dataset, returns img, original hw, resized hw
-    img = self.imgs[index]
-    if img is None:  # not cached
-        path = self.img_files[index]
-        img = cv2.imread(path)  # BGR
+    # img = self.imgs[index]
+    # if img is None:  # not cached
+    #     path = self.img_files[index]
+    #     img = cv2.imread(path)  # BGR
 
-        # if cropped:
-        #     img = crop_image(self, img, index)
-        img = crop_image(self, img, index)
+    #     # if to_crop:
+    #     #     img = crop_image(self, img, index)
+    #     img = crop_image(self, img, index)
 
-        assert img is not None, "Image Not Found " + path
-        h0, w0 = img.shape[:2]  # orig hw
-        r = self.img_size / max(h0, w0)  # resize image to img_size
-        if r != 1:  # always resize down, only resize up if training with augmentation
-            interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
-            img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
-        return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
-    else:
-        return (
-            self.imgs[index],
-            self.img_hw0[index],
-            self.img_hw[index],
-        )  # img, hw_original, hw_resized
+    #     assert img is not None, "Image Not Found " + path
+    #     h0, w0 = img.shape[:2]  # orig hw
+    #     r = self.img_size / max(h0, w0)  # resize image to img_size
+    #     if r != 1:  # always resize down, only resize up if training with augmentation
+    #         interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
+    #         img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
+    #     return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
+    # else:
+    #     return (
+    #         crop_image(self, img, index),
+    #         self.img_hw0[index],
+    #         self.img_hw[index],
+    #     )  # img, hw_original, hw_resized
+
+    path = self.img_files[index]
+    img = cv2.imread(path)  # BGR
+
+    # if to_crop:
+    #     img = crop_image(self, img, index)
+    img = crop_image(self, img, index)
+
+    assert img is not None, "Image Not Found " + path
+    h0, w0 = img.shape[:2]  # orig hw
+
+    r = self.img_size / max(h0, w0)  # resize image to img_size
+    if r != 1:  # always resize down, only resize up if training with augmentation
+        interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
+        img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
+    return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
 
 
 def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
@@ -830,7 +977,23 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
 
 
 def load_normal(self, index):
+    # print("Prior, self.labels[index]: ", self.labels[index])
     img, (h0, w0), (h, w) = load_image(self, index)
+    # color = (255, 0, 0)
+    # thickness = 2
+    # show_image = img.copy()
+    # print("(h0, w0), (h, w): ", (h0, w0), (h, w))
+    # # print("Gotten Labels: ", self.labels[index])
+    # for labels in self.labels[index]:
+    #     [_, bbox_x0, bbox_y0, bbox_w, bbox_h] = labels
+    #     start_point = (int((bbox_x0 - bbox_w) * w0), int((bbox_y0 - bbox_h) * h0))
+    #     end_point = (int((bbox_x0 + bbox_w) * w0), int((bbox_y0 + bbox_h) * h0))
+    #     show_image = cv2.rectangle(show_image, start_point, end_point, color, thickness)
+    # cv2.imshow("old_image", show_image)
+    # # print("After, self.labels[index]: ", self.labels[index])
+    # k = cv2.waitKey(0)
+    # if k == 27:
+    #     exit(0)
 
     # Letterbox
     shape = (
@@ -849,6 +1012,8 @@ def load_normal(self, index):
         labels[:, 2] = ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]  # pad height
         labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
         labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
+    # print("Later, labels: ", labels)
+    # exit(0)
     return img, labels, shapes
 
 
@@ -1225,4 +1390,15 @@ def create_folder(path="./new"):
 
 
 if __name__ == "__main__":
-    pass
+    # test resize to patch
+    # labels = [1, 0.5, 0.5, 0.25, 0.25]
+    # patch = [0.5, 0.5, 1.0, 1.0]
+    # patch = [0, 0, 0.5, 0.5]
+
+    labels = [10, 4, 4, 1, 1]
+    patch = [0, 0, 2, 2]
+    # patch = [2, 0, 4, 2]
+    # patch = [0, 2, 2, 4]
+    # patch = [5, 0, 7, 2]
+    labels = resize_to_patch(labels, patch, None)
+    print("Labels output: ", labels)
