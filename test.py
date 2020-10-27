@@ -109,7 +109,8 @@ def test(
             augment=False,
             cache=False,
             pad=0.5,
-            rect=True,
+            # rect=True,
+            rect=False,
         )[0]
 
     seen = 0
@@ -380,6 +381,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save-json",
         action="store_true",
+        default=False,
         help="save a cocoapi-compatible JSON results file",
     )
     parser.add_argument("--task", default="val", help="'val', 'test', 'study'")

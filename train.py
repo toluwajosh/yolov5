@@ -602,7 +602,10 @@ if __name__ == "__main__":
     parser.add_argument("--evolve", action="store_true", help="evolve hyperparameters")
     parser.add_argument("--bucket", type=str, default="", help="gsutil bucket")
     parser.add_argument(
-        "--cache-images", action="store_true", help="cache images for faster training"
+        "--cache-images",
+        action="store_true",
+        default=False,
+        help="cache images for faster training",
     )
     parser.add_argument(
         "--image-weights",

@@ -1338,6 +1338,8 @@ def plot_images(
                 cls = int(classes[j])
                 color = color_lut[cls % len(color_lut)]
                 cls = names[cls] if names else cls
+                # print("cls: ", cls)
+                # exit(0)
                 if gt or conf[j] > 0.3:  # 0.3 conf thresh
                     label = "%s" % cls if gt else "%s %.1f" % (cls, conf[j])
                     plot_one_box(
