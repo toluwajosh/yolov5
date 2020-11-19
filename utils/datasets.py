@@ -62,6 +62,7 @@ def create_dataloader(
     rank=-1,
     world_size=1,
     workers=8,
+    do_crop=False,
 ):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache.
     with torch_distributed_zero_first(rank):
@@ -77,6 +78,7 @@ def create_dataloader(
             stride=int(stride),
             pad=pad,
             rank=rank,
+            do_crop=do_crop,
         )
 
     batch_size = min(batch_size, len(dataset))
@@ -449,6 +451,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # Get labels
         labels, shapes = zip(*[cache[x] for x in self.img_files])
+        print(len(labels))
         self.shapes = np.array(shapes, dtype=np.float64)
         self.labels = list(labels)
 
@@ -813,7 +816,7 @@ def crop_image(self, image, index):
 
 
 # Ancillary functions --------------------------------------------------------------------------------------------------
-def load_image(self, index, do_crop=False):
+def load_image(self, index):
     # loads 1 image from dataset, returns img, original hw, resized hw
     # img = self.imgs[index]
     # if img is None:  # not cached
@@ -841,9 +844,11 @@ def load_image(self, index, do_crop=False):
     path = self.img_files[index]
     img = cv2.imread(path)  # BGR
 
-    # if to_crop:
-    #     img = crop_image(self, img, index)
-    # img = crop_image(self, img, index)
+    if self.do_crop:
+        # debug:
+        # time.sleep(5)
+        # print("Will do random cropping!!!!!!")
+        img = crop_image(self, img, index)
 
     assert img is not None, "Image Not Found " + path
     h0, w0 = img.shape[:2]  # orig hw
@@ -878,7 +883,7 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
 
 def load_normal(self, index):
     # print("Prior, self.labels[index]: ", self.labels[index])
-    img, (h0, w0), (h, w) = load_image(self, index, do_crop=self.do_crop)
+    img, (h0, w0), (h, w) = load_image(self, index)
     # color = (255, 0, 0)
     # thickness = 2
     # show_image = img.copy()
@@ -930,7 +935,7 @@ def load_mosaic(self, index):
     ]  # 3 additional image indices
     for i, index in enumerate(indices):
         # Load image
-        img, _, (h, w) = load_image(self, index, do_crop=self.do_crop)
+        img, _, (h, w) = load_image(self, index)
 
         # place img in img4
         if i == 0:  # top left

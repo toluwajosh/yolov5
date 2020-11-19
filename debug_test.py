@@ -137,6 +137,7 @@ def train(hyp, opt, device, tb_writer=None):
         rank=rank,
         world_size=opt.world_size,
         workers=1,
+        do_crop=opt.do_crop,
     )
     mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
     nb = len(dataloader)  # number of batches
@@ -232,6 +233,12 @@ if __name__ == "__main__":
     parser.add_argument("--bucket", type=str, default="", help="gsutil bucket")
     parser.add_argument(
         "--cache-images", action="store_true", help="cache images for faster training"
+    )
+    parser.add_argument(
+        "--do-crop",
+        action="store_true",
+        default=False,
+        help="randomly crop image for training",
     )
     parser.add_argument(
         "--image-weights",

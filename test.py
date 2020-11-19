@@ -373,10 +373,10 @@ if __name__ == "__main__":
         "--img-size", type=int, default=640, help="inference size (pixels)"
     )
     parser.add_argument(
-        "--conf-thres", type=float, default=0.001, help="object confidence threshold"
+        "--conf-thres", type=float, default=0.2, help="object confidence threshold"
     )
     parser.add_argument(
-        "--iou-thres", type=float, default=0.65, help="IOU threshold for NMS"
+        "--iou-thres", type=float, default=0.2, help="IOU threshold for NMS"
     )
     parser.add_argument(
         "--save-json",
