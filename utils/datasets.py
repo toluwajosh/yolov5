@@ -451,7 +451,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # Get labels
         labels, shapes = zip(*[cache[x] for x in self.img_files])
-        print(len(labels))
+        # print(type(labels))
+        print(type(shapes))
+        print(shapes[1])
         self.shapes = np.array(shapes, dtype=np.float64)
         self.labels = list(labels)
 
